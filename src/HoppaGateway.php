@@ -4,9 +4,12 @@ namespace XLaravel\PaylineHoppaDriver;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use XLaravel\Payline\Contracts\ChargesPayments;
 use XLaravel\Payline\Contracts\Gateway;
+use XLaravel\Payline\Contracts\HandlesCallbacks;
+use XLaravel\Payline\Contracts\RefundsPayments;
+use XLaravel\Payline\Contracts\VoidsPayments;
 use XLaravel\Payline\DTOs\CallbackData;
-use XLaravel\Payline\DTOs\CaptureData;
 use XLaravel\Payline\DTOs\PaymentRequest;
 use XLaravel\Payline\DTOs\PaymentResponse;
 use XLaravel\Payline\DTOs\RefundData;
@@ -15,7 +18,7 @@ use XLaravel\Payline\Enums\PaymentMethod;
 use XLaravel\Payline\Enums\TransactionStatus;
 use XLaravel\Payline\Enums\TransactionType;
 
-class HoppaGateway implements Gateway
+class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, RefundsPayments, VoidsPayments
 {
     public function __construct(private readonly array $config) {}
 
@@ -89,29 +92,6 @@ class HoppaGateway implements Gateway
         );
     }
 
-    public function authorize(PaymentRequest $data): PaymentResponse
-    {
-        return new PaymentResponse(
-            status: TransactionStatus::Failed,
-            type: TransactionType::Authorization,
-            gatewayName: $this->getName(),
-            errorCode: 'NOT_SUPPORTED',
-            errorMessage: 'Hoppa does not support pre-authorization.',
-        );
-    }
-
-    public function capture(CaptureData $data): PaymentResponse
-    {
-        return new PaymentResponse(
-            status: TransactionStatus::Failed,
-            type: TransactionType::Capture,
-            gatewayName: $this->getName(),
-            gatewayTransactionId: $data->gatewayTransactionId,
-            errorCode: 'NOT_SUPPORTED',
-            errorMessage: 'Hoppa does not support separate capture.',
-        );
-    }
-
     public function refund(RefundData $data): PaymentResponse
     {
         $response = Http::post($this->config['api_url'] . '/api/services/OrderReturn', [
@@ -125,7 +105,7 @@ class HoppaGateway implements Gateway
         $success = ($response['STATUS'] ?? '') === 'SUCCESS' && ($response['RETURN_CODE'] ?? '') === '0';
 
         return new PaymentResponse(
-            status: $success ? TransactionStatus::Refunded : TransactionStatus::Failed,
+            status: $success ? TransactionStatus::Successful : TransactionStatus::Failed,
             type: TransactionType::Refund,
             gatewayName: $this->getName(),
             gatewayTransactionId: $data->gatewayTransactionId,
@@ -202,22 +182,6 @@ class HoppaGateway implements Gateway
             gatewayTransactionId: $orderId,
             gatewayOrderId: $refNo,
             metadata: $post,
-        );
-    }
-
-    public function verifyWebhook(array $payload, string $signature): bool
-    {
-        return true;
-    }
-
-    public function parseWebhook(array $payload): PaymentResponse
-    {
-        return new PaymentResponse(
-            status: TransactionStatus::Failed,
-            type: TransactionType::Payment,
-            gatewayName: $this->getName(),
-            errorCode: 'NOT_SUPPORTED',
-            errorMessage: 'Hoppa does not support server-to-server webhooks.',
         );
     }
 

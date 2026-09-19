@@ -3,6 +3,13 @@
 namespace XLaravel\PaylineHoppaDriver\Tests\Feature;
 
 use Illuminate\Support\Facades\Http;
+use XLaravel\Payline\Contracts\AuthorizesPayments;
+use XLaravel\Payline\Contracts\CapturesPayments;
+use XLaravel\Payline\Contracts\ChargesPayments;
+use XLaravel\Payline\Contracts\HandlesCallbacks;
+use XLaravel\Payline\Contracts\HandlesWebhooks;
+use XLaravel\Payline\Contracts\RefundsPayments;
+use XLaravel\Payline\Contracts\VoidsPayments;
 use XLaravel\Payline\DTOs\CallbackData;
 use XLaravel\Payline\DTOs\Card;
 use XLaravel\Payline\DTOs\PaymentRequest;
@@ -139,7 +146,7 @@ class HoppaGatewayTest extends TestCase
             currency: 'TRY',
         ));
 
-        $this->assertSame(TransactionStatus::Refunded, $response->status);
+        $this->assertSame(TransactionStatus::Successful, $response->status);
         $this->assertSame(TransactionType::Refund, $response->type);
 
         Http::assertSent(function ($request) {
@@ -200,22 +207,21 @@ class HoppaGatewayTest extends TestCase
         $this->assertSame('MISSING_AMOUNT', $response->errorCode);
     }
 
-    public function test_authorize_returns_not_supported(): void
-    {
-        $response = $this->gateway->authorize($this->makePaymentRequest());
-
-        $this->assertSame(TransactionStatus::Failed, $response->status);
-        $this->assertSame('NOT_SUPPORTED', $response->errorCode);
-    }
-
     public function test_get_name_returns_hoppa(): void
     {
         $this->assertSame('hoppa', $this->gateway->getName());
     }
 
-    public function test_verify_webhook_always_returns_true(): void
+    public function test_declares_only_the_operations_hoppa_supports(): void
     {
-        $this->assertTrue($this->gateway->verifyWebhook([], ''));
+        $this->assertInstanceOf(ChargesPayments::class, $this->gateway);
+        $this->assertInstanceOf(RefundsPayments::class, $this->gateway);
+        $this->assertInstanceOf(VoidsPayments::class, $this->gateway);
+        $this->assertInstanceOf(HandlesCallbacks::class, $this->gateway);
+
+        $this->assertNotInstanceOf(AuthorizesPayments::class, $this->gateway);
+        $this->assertNotInstanceOf(CapturesPayments::class, $this->gateway);
+        $this->assertNotInstanceOf(HandlesWebhooks::class, $this->gateway);
     }
 
     private function makePaymentRequest(int $amount = 10000, ?int $installments = null): PaymentRequest
