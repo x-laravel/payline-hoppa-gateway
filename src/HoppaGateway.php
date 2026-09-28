@@ -6,14 +6,17 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use RuntimeException;
 use XLaravel\Payline\Contracts\ChargesPayments;
 use XLaravel\Payline\Contracts\Gateway;
 use XLaravel\Payline\Contracts\HandlesCallbacks;
+use XLaravel\Payline\Contracts\ProvidesCommissionRates;
 use XLaravel\Payline\Contracts\ProvidesGatewayCapabilities;
 use XLaravel\Payline\Contracts\QueriesPayments;
 use XLaravel\Payline\Contracts\RefundsPayments;
 use XLaravel\Payline\DTOs\BasketItem;
 use XLaravel\Payline\DTOs\CallbackData;
+use XLaravel\Payline\DTOs\CommissionRateData;
 use XLaravel\Payline\DTOs\GatewayCapabilities;
 use XLaravel\Payline\DTOs\PaymentQuery;
 use XLaravel\Payline\DTOs\PaymentRequest;
@@ -23,7 +26,7 @@ use XLaravel\Payline\Enums\PaymentMethod;
 use XLaravel\Payline\Enums\TransactionStatus;
 use XLaravel\Payline\Enums\TransactionType;
 
-class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, ProvidesGatewayCapabilities, QueriesPayments, RefundsPayments
+class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, ProvidesCommissionRates, ProvidesGatewayCapabilities, QueriesPayments, RefundsPayments
 {
     private const int ORDER_REFERENCE_LENGTH = 24;
 
@@ -176,6 +179,39 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         return $this->orderState($orderRef, $post);
     }
 
+    public function commissionRates(): array
+    {
+        $response = Http::post($this->config['api_url'] . '/api/services/GetInstallments', [
+            'MERCHANT' => $this->config['merchant_id'],
+            'MERCHANT_KEY' => $this->config['merchant_key'],
+        ]);
+
+        $body = $response->json() ?? [];
+
+        if (! $response->successful() || ($body['STATUS'] ?? '') !== 'SUCCESS') {
+            throw new RuntimeException(sprintf(
+                'Hoppa refused the rate listing: %s',
+                $body['RETURN_MESSAGE'] ?? (string) $response->status(),
+            ));
+        }
+
+        $rates = [];
+
+        foreach ($body['INSTALLMENTS'] ?? [] as $entry) {
+            if (! is_array($entry) || ! isset($entry['RATE'], $entry['INSTALLMENT'])) {
+                continue;
+            }
+
+            $rates[] = new CommissionRateData(
+                rate: round((float) $entry['RATE'] * 100, 4),
+                installments: max(1, (int) $entry['INSTALLMENT']),
+                cardFamily: $this->cardFamily($entry['FAMILY'] ?? null),
+            );
+        }
+
+        return $rates;
+    }
+
     public function queryPayment(PaymentQuery $query): PaymentResponse
     {
         $orderRef = $query->gatewayTransactionId
@@ -273,6 +309,13 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         $metadata['refund_state'] = $this->has($names, 'İade', 'Başarılı') ? 'refunded' : 'none';
 
         return $metadata;
+    }
+
+    private function cardFamily(?string $family): ?string
+    {
+        $family = trim((string) $family);
+
+        return $family === '' || $family === '*' ? null : $family;
     }
 
     private function productLine(BasketItem $item): array

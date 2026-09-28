@@ -4,11 +4,13 @@ namespace XLaravel\PaylineHoppaDriver\Tests\Feature;
 
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
+use RuntimeException;
 use XLaravel\Payline\Contracts\AuthorizesPayments;
 use XLaravel\Payline\Contracts\CapturesPayments;
 use XLaravel\Payline\Contracts\ChargesPayments;
 use XLaravel\Payline\Contracts\HandlesCallbacks;
 use XLaravel\Payline\Contracts\HandlesWebhooks;
+use XLaravel\Payline\Contracts\ProvidesCommissionRates;
 use XLaravel\Payline\Contracts\ProvidesGatewayCapabilities;
 use XLaravel\Payline\Contracts\QueriesPayments;
 use XLaravel\Payline\Contracts\RefundsPayments;
@@ -370,6 +372,7 @@ class HoppaGatewayTest extends TestCase
         $this->assertInstanceOf(HandlesCallbacks::class, $this->gateway);
         $this->assertInstanceOf(QueriesPayments::class, $this->gateway);
         $this->assertInstanceOf(ProvidesGatewayCapabilities::class, $this->gateway);
+        $this->assertInstanceOf(ProvidesCommissionRates::class, $this->gateway);
 
         $this->assertNotInstanceOf(VoidsPayments::class, $this->gateway);
         $this->assertNotInstanceOf(AuthorizesPayments::class, $this->gateway);
@@ -407,6 +410,103 @@ class HoppaGatewayTest extends TestCase
 
         $this->assertTrue($capabilities->threeDs);
         $this->assertFalse($capabilities->nonThreeDs);
+    }
+
+    public function test_commission_rates_are_read_from_the_installment_listing(): void
+    {
+        Http::fake(['*/api/services/GetInstallments' => Http::response([
+            'STATUS' => 'SUCCESS',
+            'RETURN_CODE' => '0',
+            'INSTALLMENTS' => [
+                ['FAMILY' => 'bonus', 'INSTALLMENT' => 1, 'RATE' => 0.0203],
+                ['FAMILY' => 'maximum', 'INSTALLMENT' => 3, 'RATE' => 0.031],
+            ],
+        ])]);
+
+        $rates = $this->gateway->commissionRates();
+
+        $this->assertCount(2, $rates);
+        $this->assertSame('bonus', $rates[0]->cardFamily);
+        $this->assertSame(1, $rates[0]->installments);
+        $this->assertSame(2.03, $rates[0]->rate);
+        $this->assertNull($rates[0]->cardType);
+        $this->assertNull($rates[0]->blockingDays);
+
+        $this->assertSame('maximum', $rates[1]->cardFamily);
+        $this->assertSame(3, $rates[1]->installments);
+        $this->assertSame(3.10, $rates[1]->rate);
+
+        Http::assertSent(function ($request) {
+            $body = $request->data();
+
+            return str_contains($request->url(), '/api/services/GetInstallments')
+                && $body['MERCHANT'] === 'TEST_MERCHANT'
+                && $body['MERCHANT_KEY'] === 'TEST_KEY';
+        });
+    }
+
+    public function test_the_providers_wildcard_family_becomes_a_wildcard_row(): void
+    {
+        Http::fake(['*/api/services/GetInstallments' => Http::response([
+            'STATUS' => 'SUCCESS',
+            'INSTALLMENTS' => [
+                ['FAMILY' => '*', 'INSTALLMENT' => 1, 'RATE' => 0.0225],
+                ['FAMILY' => '', 'INSTALLMENT' => 2, 'RATE' => 0.035],
+                ['INSTALLMENT' => 3, 'RATE' => 0.045],
+            ],
+        ])]);
+
+        foreach ($this->gateway->commissionRates() as $rate) {
+            $this->assertNull($rate->cardFamily);
+        }
+    }
+
+    public function test_a_zero_installment_entry_counts_as_a_single_payment(): void
+    {
+        Http::fake(['*/api/services/GetInstallments' => Http::response([
+            'STATUS' => 'SUCCESS',
+            'INSTALLMENTS' => [['FAMILY' => 'bonus', 'INSTALLMENT' => 0, 'RATE' => 0.0203]],
+        ])]);
+
+        $this->assertSame(1, $this->gateway->commissionRates()[0]->installments);
+    }
+
+    public function test_an_entry_without_a_rate_is_skipped(): void
+    {
+        Http::fake(['*/api/services/GetInstallments' => Http::response([
+            'STATUS' => 'SUCCESS',
+            'INSTALLMENTS' => [
+                ['FAMILY' => 'bonus', 'INSTALLMENT' => 1],
+                ['FAMILY' => 'axess', 'INSTALLMENT' => 1, 'RATE' => 0.019],
+            ],
+        ])]);
+
+        $rates = $this->gateway->commissionRates();
+
+        $this->assertCount(1, $rates);
+        $this->assertSame('axess', $rates[0]->cardFamily);
+    }
+
+    public function test_a_refused_rate_listing_throws(): void
+    {
+        Http::fake(['*/api/services/GetInstallments' => Http::response([
+            'STATUS' => 'ERROR',
+            'RETURN_MESSAGE' => 'Merchant not allowed.',
+        ])]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Merchant not allowed.');
+
+        $this->gateway->commissionRates();
+    }
+
+    public function test_an_unreachable_rate_listing_throws(): void
+    {
+        Http::fake(['*/api/services/GetInstallments' => Http::response('', 500)]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway->commissionRates();
     }
 
     private function fakeInitiation(): void
