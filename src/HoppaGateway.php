@@ -14,6 +14,7 @@ use XLaravel\Payline\Contracts\ProvidesCommissionRates;
 use XLaravel\Payline\Contracts\ProvidesGatewayCapabilities;
 use XLaravel\Payline\Contracts\QueriesPayments;
 use XLaravel\Payline\Contracts\RefundsPayments;
+use XLaravel\Payline\Contracts\VoidsPayments;
 use XLaravel\Payline\DTOs\BasketItem;
 use XLaravel\Payline\DTOs\CallbackData;
 use XLaravel\Payline\DTOs\CommissionRateData;
@@ -22,11 +23,12 @@ use XLaravel\Payline\DTOs\PaymentQuery;
 use XLaravel\Payline\DTOs\PaymentRequest;
 use XLaravel\Payline\DTOs\PaymentResponse;
 use XLaravel\Payline\DTOs\RefundData;
+use XLaravel\Payline\DTOs\VoidData;
 use XLaravel\Payline\Enums\PaymentMethod;
 use XLaravel\Payline\Enums\TransactionStatus;
 use XLaravel\Payline\Enums\TransactionType;
 
-class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, ProvidesCommissionRates, ProvidesGatewayCapabilities, QueriesPayments, RefundsPayments
+class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, ProvidesCommissionRates, ProvidesGatewayCapabilities, QueriesPayments, RefundsPayments, VoidsPayments
 {
     private const int ORDER_REFERENCE_LENGTH = 24;
 
@@ -44,7 +46,7 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
     public function capabilities(): GatewayCapabilities
     {
         return new GatewayCapabilities(
-            operations: [TransactionType::Payment, TransactionType::Refund],
+            operations: [TransactionType::Payment, TransactionType::Refund, TransactionType::Void],
             methods: [PaymentMethod::CreditCard, PaymentMethod::DebitCard],
             currencies: ['TRY', 'USD', 'EUR', 'GBP'],
             threeDs: true,
@@ -131,11 +133,38 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
 
     public function refund(RefundData $data): PaymentResponse
     {
+        return $this->reverse(
+            $data->gatewayTransactionId,
+            $data->amount,
+            $data->currency,
+            TransactionType::Refund,
+            TransactionStatus::Successful,
+        );
+    }
+
+    public function void(VoidData $data): PaymentResponse
+    {
+        return $this->reverse(
+            $data->gatewayTransactionId,
+            $data->amount,
+            $data->currency,
+            TransactionType::Void,
+            TransactionStatus::Voided,
+        );
+    }
+
+    private function reverse(
+        string $orderRef,
+        int $amount,
+        string $currency,
+        TransactionType $type,
+        TransactionStatus $settled,
+    ): PaymentResponse {
         $response = Http::post($this->config['api_url'] . '/api/services/OrderReturn', [
             'MERCHANT' => $this->config['merchant_id'],
             'MERCHANT_KEY' => $this->config['merchant_key'],
-            'ORDER_REF_NUMBER' => $data->gatewayTransactionId,
-            'AMOUNT' => $this->formatAmount($data->amount),
+            'ORDER_REF_NUMBER' => $orderRef,
+            'AMOUNT' => $this->formatAmount($amount),
             'SYNC_WITH_POS' => true,
         ]);
 
@@ -144,12 +173,12 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         if (! $response->successful()) {
             return new PaymentResponse(
                 status: TransactionStatus::Unknown,
-                type: TransactionType::Refund,
+                type: $type,
                 gatewayName: $this->getName(),
-                gatewayTransactionId: $data->gatewayTransactionId,
-                currency: $data->currency,
+                gatewayTransactionId: $orderRef,
+                currency: $currency,
                 errorCode: (string) $response->status(),
-                errorMessage: 'Refund request failed.',
+                errorMessage: 'Reversal request failed.',
                 metadata: $body ?: null,
             );
         }
@@ -157,16 +186,16 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         $success = ($body['STATUS'] ?? '') === 'SUCCESS' && ($body['RETURN_CODE'] ?? '') === '0';
 
         return new PaymentResponse(
-            status: $success ? TransactionStatus::Successful : TransactionStatus::Failed,
-            type: TransactionType::Refund,
+            status: $success ? $settled : TransactionStatus::Failed,
+            type: $type,
             gatewayName: $this->getName(),
-            gatewayTransactionId: $data->gatewayTransactionId,
-            gatewayOrderId: $body['REFNO'] ?? null,
-            gatewayResponseCode: $body['RETURN_CODE'] ?? null,
-            gatewayResponseMessage: $body['RETURN_MESSAGE'] ?? null,
-            currency: $data->currency,
-            errorCode: $success ? null : ($body['RETURN_CODE'] ?? 'UNKNOWN'),
-            errorMessage: $success ? null : ($body['RETURN_MESSAGE'] ?? 'Refund failed.'),
+            gatewayTransactionId: $orderRef,
+            gatewayOrderId: $this->nullIfBlank($body['REFNO'] ?? null),
+            gatewayResponseCode: $this->nullIfBlank($body['RETURN_CODE'] ?? null),
+            gatewayResponseMessage: $this->nullIfBlank($body['RETURN_MESSAGE'] ?? null),
+            currency: $currency,
+            errorCode: $success ? null : ($this->nullIfBlank($body['RETURN_CODE'] ?? null) ?? 'UNKNOWN'),
+            errorMessage: $success ? null : ($this->nullIfBlank($body['RETURN_MESSAGE'] ?? null) ?? 'Reversal failed.'),
             metadata: $body ?: null,
         );
     }
@@ -335,7 +364,7 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         $total = 0;
 
         foreach ($body['TRANSACTIONS'] ?? [] as $transaction) {
-            if (! is_array($transaction) || ! $this->has([$transaction['STATUS_NAME'] ?? ''], 'İade', 'Başarılı')) {
+            if (! is_array($transaction) || ! $this->returnsMoney($transaction['STATUS_NAME'] ?? '')) {
                 continue;
             }
 
@@ -349,6 +378,12 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         }
 
         return $total;
+    }
+
+    private function returnsMoney(string $name): bool
+    {
+        return $this->has([$name], 'İade', 'Başarılı')
+            || $this->has([$name], 'İptal', 'Başarılı');
     }
 
     private function minorUnits(mixed $amount): ?int

@@ -114,7 +114,22 @@ a retry safe.
 
 ### Cancelling
 
-Hoppa cancels through the same `/api/services/OrderReturn` endpoint it refunds through, so a cancellation is a refund for the full amount and the driver does not implement `VoidsPayments`. Payline's `void()` releases an authorization, and Hoppa takes no authorizations.
+```php
+Payline::payment($payment)->void();
+```
+
+Hoppa cancels through the same `/api/services/OrderReturn` endpoint it refunds through. There
+is no field that names the operation: a reversal that returns the whole order amount is
+recorded as a cancellation, a smaller one as a refund. Partial refunds accumulate, so the
+reversal that brings the returned total up to the order amount is the one that cancels it.
+
+`void()` therefore sends the full amount of the sale and reports `voided`, while `refund()`
+sends the amount it was given and reports `successful`. Both reach the same endpoint.
+
+Hoppa records the outcome as its own entry under `TRANSACTIONS`, named `İptal - Başarılı` for
+a cancellation and `İade - Başarılı` for a refund, each carrying its amount. The driver totals
+both into `PaymentResponse::$refundedAmount`, because a cancellation returns money just as a
+refund does.
 
 ### Reconciliation
 
@@ -130,7 +145,7 @@ php artisan payline:reconcile --gateway=hoppa
 
 | `STATUS_NAME` | Result |
 |---------------|--------|
-| `İptal - Başarılı` | `voided` |
+| `İptal - Başarılı` | `voided`, and its amount counts as returned |
 | `Ödeme - Başarılı` | `successful` |
 | `Ödeme - Başarısız` | `failed` |
 | `Ödeme - Bekliyor` | `pending` |
@@ -232,7 +247,7 @@ A family reported as `*` becomes a wildcard row.
 | Reconcile | ✓ | `/api/services/ProcessQuery`, keyed on the order reference |
 | Authorize | ✗ | Hoppa takes no authorizations |
 | Capture | ✗ | Follows from the above |
-| Void/Cancel | ✗ | Cancelling is a full refund through the refund endpoint |
+| Void/Cancel | ✓ | Full amount through `/api/services/OrderReturn`; Hoppa records it as a cancellation |
 | Webhooks | ✗ | Hoppa uses a callback-only flow |
 
 Amounts are sent as lira with two decimal places: Payline's `10050` in the minor unit leaves as `100.50`. The basket, when the request carries one, is sent as the `Product` group.

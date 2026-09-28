@@ -21,6 +21,7 @@ use XLaravel\Payline\DTOs\Card;
 use XLaravel\Payline\DTOs\PaymentQuery;
 use XLaravel\Payline\DTOs\PaymentRequest;
 use XLaravel\Payline\DTOs\RefundData;
+use XLaravel\Payline\DTOs\VoidData;
 use XLaravel\Payline\Enums\PaymentMethod;
 use XLaravel\Payline\Enums\TransactionStatus;
 use XLaravel\Payline\Enums\TransactionType;
@@ -404,6 +405,35 @@ class HoppaGatewayTest extends TestCase
         $this->assertNull($response->refundedAmount);
     }
 
+    public function test_a_cancelled_order_reports_the_cancelled_amount_as_returned(): void
+    {
+        $this->fakeQuery(
+            ['TRANSACTION_ID' => 783347, 'STATUS_NAME' => 'Ödeme - Bekliyor', 'AMOUNT' => '350,00'],
+            ['TRANSACTION_ID' => 783348, 'STATUS_NAME' => 'Ödeme - 3D Doğrulama Bekleniyor', 'AMOUNT' => '350,00'],
+            ['TRANSACTION_ID' => 783349, 'STATUS_NAME' => 'Ödeme - Başarılı', 'AMOUNT' => '350,00'],
+            ['TRANSACTION_ID' => 783356, 'STATUS_NAME' => 'İptal - Başarılı', 'AMOUNT' => '350,00'],
+        );
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertSame(TransactionStatus::Voided, $response->status);
+        $this->assertTrue($response->voided);
+        $this->assertSame(35000, $response->refundedAmount);
+    }
+
+    public function test_a_cancellation_and_a_refund_are_totalled_together(): void
+    {
+        $this->fakeQuery(
+            ['STATUS_NAME' => 'Ödeme - Başarılı', 'AMOUNT' => '350,00'],
+            ['STATUS_NAME' => 'İade - Başarılı', 'AMOUNT' => '150,00'],
+            ['STATUS_NAME' => 'İptal - Başarılı', 'AMOUNT' => '200,00'],
+        );
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertSame(35000, $response->refundedAmount);
+    }
+
     public function test_query_payment_reports_a_cancelled_order_as_voided(): void
     {
         Http::fake(['*/api/services/ProcessQuery' => Http::response([
@@ -521,6 +551,56 @@ class HoppaGatewayTest extends TestCase
         $this->assertSame('hoppa', $this->gateway->getName());
     }
 
+    public function test_void_returns_the_full_amount_through_the_return_service(): void
+    {
+        Http::fake([
+            '*/api/services/OrderReturn' => Http::response([
+                'STATUS' => 'SUCCESS',
+                'RETURN_CODE' => '0',
+                'REFNO' => 'HOPPA-CANCEL-1',
+            ]),
+        ]);
+
+        $response = $this->gateway->void(new VoidData(
+            gatewayTransactionId: 'ORD-001',
+            amount: 35000,
+            currency: 'TRY',
+        ));
+
+        $this->assertSame(TransactionStatus::Voided, $response->status);
+        $this->assertSame(TransactionType::Void, $response->type);
+        $this->assertSame('HOPPA-CANCEL-1', $response->gatewayOrderId);
+
+        Http::assertSent(fn ($request) => $request->data()['AMOUNT'] === '350.00'
+            && $request->data()['ORDER_REF_NUMBER'] === 'ORD-001');
+    }
+
+    public function test_a_rejected_void_is_failed_rather_than_voided(): void
+    {
+        Http::fake([
+            '*/api/services/OrderReturn' => Http::response([
+                'STATUS' => 'ERROR',
+                'RETURN_CODE' => '500',
+                'RETURN_MESSAGE' => 'İşlem bulunamadı',
+            ]),
+        ]);
+
+        $response = $this->gateway->void(new VoidData(gatewayTransactionId: 'ORD-001', amount: 35000));
+
+        $this->assertSame(TransactionStatus::Failed, $response->status);
+        $this->assertSame('500', $response->errorCode);
+    }
+
+    public function test_an_unanswered_void_stays_unknown(): void
+    {
+        Http::fake(['*/api/services/OrderReturn' => Http::response('', 500)]);
+
+        $response = $this->gateway->void(new VoidData(gatewayTransactionId: 'ORD-001', amount: 35000));
+
+        $this->assertSame(TransactionStatus::Unknown, $response->status);
+        $this->assertSame(TransactionType::Void, $response->type);
+    }
+
     public function test_declares_only_the_operations_hoppa_supports(): void
     {
         $this->assertInstanceOf(ChargesPayments::class, $this->gateway);
@@ -529,8 +609,8 @@ class HoppaGatewayTest extends TestCase
         $this->assertInstanceOf(QueriesPayments::class, $this->gateway);
         $this->assertInstanceOf(ProvidesGatewayCapabilities::class, $this->gateway);
         $this->assertInstanceOf(ProvidesCommissionRates::class, $this->gateway);
+        $this->assertInstanceOf(VoidsPayments::class, $this->gateway);
 
-        $this->assertNotInstanceOf(VoidsPayments::class, $this->gateway);
         $this->assertNotInstanceOf(AuthorizesPayments::class, $this->gateway);
         $this->assertNotInstanceOf(CapturesPayments::class, $this->gateway);
         $this->assertNotInstanceOf(HandlesWebhooks::class, $this->gateway);
@@ -547,7 +627,7 @@ class HoppaGatewayTest extends TestCase
     public function test_capabilities_list_only_the_operations_hoppa_takes(): void
     {
         $this->assertSame(
-            [TransactionType::Payment, TransactionType::Refund],
+            [TransactionType::Payment, TransactionType::Refund, TransactionType::Void],
             $this->gateway->capabilities()->operations,
         );
     }
