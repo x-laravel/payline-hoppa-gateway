@@ -11,9 +11,5 @@ class HoppaServiceProvider extends ServiceProvider
         $this->app->make('payline')->extend('hoppa', function ($app, array $config) {
             return new HoppaGateway($config);
         });
-
-        $this->app->make('payline.bin_lookup')->extend('hoppa', function ($app, array $config) {
-            return new HoppaBinLookupProvider($config);
-        });
     }
 }

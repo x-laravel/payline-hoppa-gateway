@@ -196,50 +196,15 @@ uses `PaymentQuery::$currency` when reconciliation names the currency it is aski
 
 ## BIN Lookup
 
-Hoppa provides a BIN lookup service that resolves card family and type from the first 8 digits of a card number. Enable it by setting `payline.bin_lookup.default` to `hoppa`:
+Hoppa's BIN service resolves a card family and card type from the first eight digits of
+a card number, which is what Payline's commission routing needs. It lives in its own
+package, because a merchant charging through another gateway can use it just as well:
 
-```php
-// config/payline.php
-'bin_lookup' => [
-    'default' => env('PAYLINE_BIN_LOOKUP_DRIVER', 'hoppa'),
-    'drivers' => [],
-],
+```bash
+composer require x-laravel/payline-hoppa-bin-lookup
 ```
 
-The driver follows `payline.test_mode` like the gateway does, and `bin_lookup.drivers.hoppa.base_url` overrides it. Usage:
-
-```php
-use XLaravel\Payline\DTOs\Card;
-use XLaravel\Payline\BinLookupManager;
-
-$card = (new Card(
-    holderName: 'John Doe',
-    number: '4111111111111111',
-    expiryMonth: '12',
-    expiryYear: '2030',
-    cvv: '123',
-))->resolveProfile(app(BinLookupManager::class));
-
-// $card->profile->family → 'maximum'
-// $card->profile->type   → CardType::Credit
-```
-
-When used with `PaymentRequest`, the resolved `CardProfile` enables automatic gateway routing via `GatewayRouter`:
-
-```php
-$data = PaymentRequest::fromPayable(
-    payable: $order,
-    card: $card, // profile already resolved
-    installments: 3,
-);
-
-$order->pay()->charge($data); // cheapest gateway selected automatically
-```
-
-| Hoppa `Card_Type` | Payline `CardType`   |
-|-------------------|----------------------|
-| CREDIT            | `CardType::Credit`   |
-| DEBIT             | `CardType::Debit`    |
+See [payline-hoppa-bin-lookup](https://github.com/x-laravel/payline-hoppa-bin-lookup).
 
 ## Commission Rates
 
