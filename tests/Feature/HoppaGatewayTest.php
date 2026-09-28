@@ -9,6 +9,7 @@ use XLaravel\Payline\Contracts\CapturesPayments;
 use XLaravel\Payline\Contracts\ChargesPayments;
 use XLaravel\Payline\Contracts\HandlesCallbacks;
 use XLaravel\Payline\Contracts\HandlesWebhooks;
+use XLaravel\Payline\Contracts\ProvidesGatewayCapabilities;
 use XLaravel\Payline\Contracts\QueriesPayments;
 use XLaravel\Payline\Contracts\RefundsPayments;
 use XLaravel\Payline\Contracts\VoidsPayments;
@@ -18,6 +19,7 @@ use XLaravel\Payline\DTOs\Card;
 use XLaravel\Payline\DTOs\PaymentQuery;
 use XLaravel\Payline\DTOs\PaymentRequest;
 use XLaravel\Payline\DTOs\RefundData;
+use XLaravel\Payline\Enums\PaymentMethod;
 use XLaravel\Payline\Enums\TransactionStatus;
 use XLaravel\Payline\Enums\TransactionType;
 use XLaravel\PaylineHoppaDriver\HoppaGateway;
@@ -367,11 +369,44 @@ class HoppaGatewayTest extends TestCase
         $this->assertInstanceOf(RefundsPayments::class, $this->gateway);
         $this->assertInstanceOf(HandlesCallbacks::class, $this->gateway);
         $this->assertInstanceOf(QueriesPayments::class, $this->gateway);
+        $this->assertInstanceOf(ProvidesGatewayCapabilities::class, $this->gateway);
 
         $this->assertNotInstanceOf(VoidsPayments::class, $this->gateway);
         $this->assertNotInstanceOf(AuthorizesPayments::class, $this->gateway);
         $this->assertNotInstanceOf(CapturesPayments::class, $this->gateway);
         $this->assertNotInstanceOf(HandlesWebhooks::class, $this->gateway);
+    }
+
+    public function test_capabilities_cover_both_card_kinds(): void
+    {
+        $methods = $this->gateway->capabilities()->methods;
+
+        $this->assertContains(PaymentMethod::CreditCard, $methods);
+        $this->assertContains(PaymentMethod::DebitCard, $methods);
+    }
+
+    public function test_capabilities_list_only_the_operations_hoppa_takes(): void
+    {
+        $this->assertSame(
+            [TransactionType::Payment, TransactionType::Refund],
+            $this->gateway->capabilities()->operations,
+        );
+    }
+
+    public function test_capabilities_list_the_currencies_the_provider_accepts(): void
+    {
+        $this->assertSame(
+            ['TRY', 'USD', 'EUR', 'GBP'],
+            $this->gateway->capabilities()->currencies,
+        );
+    }
+
+    public function test_capabilities_declare_three_d_secure_only(): void
+    {
+        $capabilities = $this->gateway->capabilities();
+
+        $this->assertTrue($capabilities->threeDs);
+        $this->assertFalse($capabilities->nonThreeDs);
     }
 
     private function fakeInitiation(): void

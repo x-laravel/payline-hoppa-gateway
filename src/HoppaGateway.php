@@ -9,10 +9,12 @@ use InvalidArgumentException;
 use XLaravel\Payline\Contracts\ChargesPayments;
 use XLaravel\Payline\Contracts\Gateway;
 use XLaravel\Payline\Contracts\HandlesCallbacks;
+use XLaravel\Payline\Contracts\ProvidesGatewayCapabilities;
 use XLaravel\Payline\Contracts\QueriesPayments;
 use XLaravel\Payline\Contracts\RefundsPayments;
 use XLaravel\Payline\DTOs\BasketItem;
 use XLaravel\Payline\DTOs\CallbackData;
+use XLaravel\Payline\DTOs\GatewayCapabilities;
 use XLaravel\Payline\DTOs\PaymentQuery;
 use XLaravel\Payline\DTOs\PaymentRequest;
 use XLaravel\Payline\DTOs\PaymentResponse;
@@ -21,7 +23,7 @@ use XLaravel\Payline\Enums\PaymentMethod;
 use XLaravel\Payline\Enums\TransactionStatus;
 use XLaravel\Payline\Enums\TransactionType;
 
-class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, QueriesPayments, RefundsPayments
+class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, ProvidesGatewayCapabilities, QueriesPayments, RefundsPayments
 {
     private const int ORDER_REFERENCE_LENGTH = 24;
 
@@ -32,9 +34,17 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Querie
         return 'hoppa';
     }
 
-    public function supportedMethods(): array
+    public function capabilities(): GatewayCapabilities
     {
-        return [PaymentMethod::CreditCard];
+        return new GatewayCapabilities(
+            operations: [TransactionType::Payment, TransactionType::Refund],
+            methods: [PaymentMethod::CreditCard, PaymentMethod::DebitCard],
+            currencies: ['TRY', 'USD', 'EUR', 'GBP'],
+            threeDs: true,
+            nonThreeDs: false,
+            partialRefunds: true,
+            statusQueries: true,
+        );
     }
 
     public function pay(PaymentRequest $data): PaymentResponse

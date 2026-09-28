@@ -203,6 +203,10 @@ $order->pay()->charge($data); // cheapest gateway selected automatically
 
 Amounts are sent as lira with two decimal places: Payline's `10050` in the minor unit leaves as `100.50`. The basket, when the request carries one, is sent as the `Product` group.
 
+The driver declares the table above through `ProvidesGatewayCapabilities`, so commission
+routing skips it for a request it cannot take. Credit and debit cards are both accepted,
+and the currencies are the four `PRICES_CURRENCY` values the provider documents.
+
 ## Testing
 
 ```bash
