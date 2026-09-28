@@ -286,6 +286,37 @@ class HoppaGatewayTest extends TestCase
         $this->assertSame('SUCCESS', $response->metadata['query']['STATUS']);
     }
 
+    public function test_test_mode_reaches_the_test_host(): void
+    {
+        $this->fakeQuery(['STATUS_NAME' => 'İptal - Başarılı']);
+
+        $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        Http::assertSent(fn ($r) => str_starts_with($r->url(), 'https://posservicetest.esnekpos.com/'));
+    }
+
+    public function test_the_live_host_is_used_without_test_mode(): void
+    {
+        $gateway = new HoppaGateway(array_merge($this->config, ['test_mode' => false]));
+
+        $this->fakeQuery(['STATUS_NAME' => 'İptal - Başarılı']);
+
+        $gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        Http::assertSent(fn ($r) => str_starts_with($r->url(), 'https://posservice.esnekpos.com/'));
+    }
+
+    public function test_a_configured_base_url_wins_over_both_hosts(): void
+    {
+        $gateway = new HoppaGateway(array_merge($this->config, ['base_url' => 'https://elsewhere.test']));
+
+        $this->fakeQuery(['STATUS_NAME' => 'İptal - Başarılı']);
+
+        $gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        Http::assertSent(fn ($r) => $r->url() === 'https://elsewhere.test/api/services/ProcessQuery');
+    }
+
     public function test_query_payment_reports_a_cancelled_order(): void
     {
         $this->fakeQuery(['STATUS_NAME' => 'İptal - Başarılı']);

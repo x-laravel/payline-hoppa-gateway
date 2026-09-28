@@ -27,7 +27,7 @@ class TestCase extends Orchestra
 
         $app['config']->set('payline.default', 'hoppa');
         $app['config']->set('payline.gateways.hoppa', [
-            'api_url' => 'https://api.hoppa.com',
+            'test_mode' => true,
             'merchant_id' => 'TEST_MERCHANT',
             'merchant_key' => 'TEST_KEY',
         ]);

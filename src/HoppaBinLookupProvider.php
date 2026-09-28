@@ -9,11 +9,21 @@ use XLaravel\Payline\Enums\CardType;
 
 class HoppaBinLookupProvider implements BinLookupProvider
 {
-    public function __construct(private readonly string $apiUrl) {}
+    private const string TEST_BASE_URL = 'https://posservicetest.esnekpos.com';
+
+    private const string LIVE_BASE_URL = 'https://posservice.esnekpos.com';
+
+    private readonly string $baseUrl;
+
+    public function __construct(array $config = [])
+    {
+        $this->baseUrl = $config['base_url']
+            ?? (($config['test_mode'] ?? false) ? self::TEST_BASE_URL : self::LIVE_BASE_URL);
+    }
 
     public function lookup(string $bin): ?CardProfile
     {
-        $response = Http::post($this->apiUrl . '/api/services/EYVBinService', [
+        $response = Http::post($this->baseUrl . '/api/services/EYVBinService', [
             'CardNumber' => substr($bin, 0, 8),
         ])->json();
 

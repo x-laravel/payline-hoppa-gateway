@@ -30,13 +30,23 @@ use XLaravel\Payline\Enums\TransactionType;
 
 class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, ProvidesCommissionRates, ProvidesGatewayCapabilities, QueriesPayments, RefundsPayments, VoidsPayments
 {
+    private const string TEST_BASE_URL = 'https://posservicetest.esnekpos.com';
+
+    private const string LIVE_BASE_URL = 'https://posservice.esnekpos.com';
+
     private const int ORDER_REFERENCE_LENGTH = 24;
 
     private const string PAYMENT_WAITING = 'PAYMENT_WAITING';
 
     private const int THREE_DS_SESSION_MINUTES = 30;
 
-    public function __construct(private readonly array $config) {}
+    private readonly string $baseUrl;
+
+    public function __construct(private readonly array $config)
+    {
+        $this->baseUrl = $config['base_url']
+            ?? (($config['test_mode'] ?? false) ? self::TEST_BASE_URL : self::LIVE_BASE_URL);
+    }
 
     public function getName(): string
     {
@@ -96,7 +106,7 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
             $payload['Product'] = array_map($this->productLine(...), $data->basketItems);
         }
 
-        $response = Http::post($this->config['api_url'] . '/api/pay/EYV3DPay', $payload)->json() ?? [];
+        $response = Http::post($this->baseUrl . '/api/pay/EYV3DPay', $payload)->json() ?? [];
 
         if (($response['STATUS'] ?? '') !== 'SUCCESS' || blank($response['URL_3DS'] ?? null)) {
             return new PaymentResponse(
@@ -160,7 +170,7 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         TransactionType $type,
         TransactionStatus $settled,
     ): PaymentResponse {
-        $response = Http::post($this->config['api_url'] . '/api/services/OrderReturn', [
+        $response = Http::post($this->baseUrl . '/api/services/OrderReturn', [
             'MERCHANT' => $this->config['merchant_id'],
             'MERCHANT_KEY' => $this->config['merchant_key'],
             'ORDER_REF_NUMBER' => $orderRef,
@@ -220,7 +230,7 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
 
     public function commissionRates(): array
     {
-        $response = Http::post($this->config['api_url'] . '/api/services/GetInstallments', [
+        $response = Http::post($this->baseUrl . '/api/services/GetInstallments', [
             'MERCHANT' => $this->config['merchant_id'],
             'MERCHANT_KEY' => $this->config['merchant_key'],
         ]);
@@ -261,7 +271,7 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
 
     private function orderState(string $orderRef, array $callback = [], ?string $currency = null): PaymentResponse
     {
-        $response = Http::post($this->config['api_url'] . '/api/services/ProcessQuery', [
+        $response = Http::post($this->baseUrl . '/api/services/ProcessQuery', [
             'MERCHANT' => $this->config['merchant_id'],
             'MERCHANT_KEY' => $this->config['merchant_key'],
             'ORDER_REF_NUMBER' => $orderRef,

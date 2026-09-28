@@ -14,7 +14,7 @@ class HoppaBinLookupProviderTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->provider = new HoppaBinLookupProvider('https://api.hoppa.com');
+        $this->provider = new HoppaBinLookupProvider(['test_mode' => true]);
     }
 
     public function test_lookup_returns_card_profile_for_credit_card(): void

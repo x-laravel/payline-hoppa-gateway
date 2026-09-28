@@ -26,7 +26,6 @@ Add the `hoppa` block to `config/payline.php` under `gateways`:
 ```php
 'gateways' => [
     'hoppa' => [
-        'api_url'      => env('HOPPA_API_URL', 'https://posservicetest.esnekpos.com'),
         'merchant_id'  => env('HOPPA_MERCHANT_ID'),
         'merchant_key' => env('HOPPA_MERCHANT_KEY'),
         'three_ds_session_minutes' => env('HOPPA_3DS_SESSION_MINUTES', 30),
@@ -38,11 +37,27 @@ Set the corresponding environment variables in `.env`:
 
 ```dotenv
 PAYLINE_GATEWAY=hoppa
+PAYLINE_TEST_MODE=true
 
-HOPPA_API_URL=https://posservice.esnekpos.com
 HOPPA_MERCHANT_ID=your-merchant-id
 HOPPA_MERCHANT_KEY=your-merchant-key
 ```
+
+## Test and Live
+
+The gateway ships both Hoppa addresses and picks between them with `payline.test_mode`:
+
+| `test_mode` | Host |
+|-------------|------|
+| `true` | `https://posservicetest.esnekpos.com` |
+| `false` | `https://posservice.esnekpos.com` |
+
+`PAYLINE_TEST_MODE` defaults to `false`, so an installation that never sets it talks to
+the live one. The test environment issues its own merchant identifier and key, so
+switching the flag also means switching those values.
+
+A `base_url` in the `hoppa` block wins over both. It carries a scheme and a host only;
+the gateway appends its own paths.
 
 ## Usage
 
@@ -191,7 +206,7 @@ Hoppa provides a BIN lookup service that resolves card family and type from the 
 ],
 ```
 
-The BIN lookup driver automatically uses the same `api_url` configured under `payline.gateways.hoppa`. Usage:
+The driver follows `payline.test_mode` like the gateway does, and `bin_lookup.drivers.hoppa.base_url` overrides it. Usage:
 
 ```php
 use XLaravel\Payline\DTOs\Card;
