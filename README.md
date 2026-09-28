@@ -29,6 +29,7 @@ Add the `hoppa` block to `config/payline.php` under `gateways`:
         'api_url'      => env('HOPPA_API_URL', 'https://posservicetest.esnekpos.com'),
         'merchant_id'  => env('HOPPA_MERCHANT_ID'),
         'merchant_key' => env('HOPPA_MERCHANT_KEY'),
+        'three_ds_session_minutes' => env('HOPPA_3DS_SESSION_MINUTES', 30),
     ],
 ],
 ```
@@ -103,19 +104,13 @@ class HandlePaymentSucceeded
 ### Refund
 
 ```php
-use XLaravel\Payline\DTOs\RefundData;
 use XLaravel\Payline\Facades\Payline;
 
-Payline::via('hoppa')->refund(
-    new RefundData(
-        gatewayTransactionId: $transaction->gateway_transaction_id,
-        amount: 5000, // kuruş
-        currency: 'TRY',
-    ),
-    $payment,
-    $transaction,
-);
+Payline::payment($payment)->refund(amount: 5000);
 ```
+
+Payline finds the sale itself. The amount is in minor units, and an `idempotencyKey` makes
+a retry safe.
 
 ### Cancelling
 
@@ -138,9 +133,36 @@ php artisan payline:reconcile --gateway=hoppa
 | `İptal - Başarılı` | `voided` |
 | `Ödeme - Başarılı` | `successful` |
 | `Ödeme - Başarısız` | `failed` |
+| `Ödeme - Bekliyor` | `pending` |
 | anything else | `unknown` |
 
-`İade - Başarılı` does not change the status of the sale, since a refund is its own transaction in Payline. It surfaces as `refund_state` on the metadata, either `refunded` or `none`.
+The order status `PAYMENT_WAITING` means the same as the last row and is read as well. An
+order whose customer has not come back from the 3D Secure page answers with both:
+
+```json
+{ "STATUS": "PAYMENT_WAITING", "RETURN_CODE": "106", "RETURN_MESSAGE": "Ödeme - Bekliyor",
+  "TRANSACTIONS": [{ "STATUS_NAME": "Ödeme - Bekliyor", "AMOUNT": "-1,00" }] }
+```
+
+Hoppa sends that same answer while the customer is still on the page, so the driver reports
+it as `pending` and Payline settles it as `expired` once the transaction passes the deadline
+set from `three_ds_session_minutes`. An order Hoppa cannot find answers `RETURN_CODE` `400`
+with a null `TRANSACTIONS`, which stays `unknown`.
+
+`İade - Başarılı` does not change the status of the sale, since a refund is its own
+transaction in Payline. It surfaces as `refund_state` on the metadata, either `refunded` or
+`none`, and its `AMOUNT` values are totalled into `PaymentResponse::$refundedAmount` so
+Payline can settle an open refund. Amounts arrive in Turkish notation and carry a sign that
+depends on the direction, so they are parsed as `-1.250,00` and taken as absolute values;
+when one of them cannot be read the driver reports no total rather than a wrong one.
+
+## Currencies
+
+Hoppa takes `PRICES_CURRENCY` on the payment request and accepts `TRY`, `USD`, `EUR` and
+`GBP`, but it never reports a currency back: neither the `EYV3DPay` answer, nor the callback
+POSTed to `BACK_URL`, nor the `ProcessQuery` response carries one. The driver therefore
+leaves `PaymentResponse::$currency` null after a callback rather than claiming `TRY`, and
+uses `PaymentQuery::$currency` when reconciliation names the currency it is asking about.
 
 ## BIN Lookup
 

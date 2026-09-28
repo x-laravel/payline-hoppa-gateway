@@ -30,11 +30,13 @@ use XLaravel\PaylineHoppaDriver\Tests\TestCase;
 class HoppaGatewayTest extends TestCase
 {
     private HoppaGateway $gateway;
+    private array $config;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->gateway = new HoppaGateway(config('payline.gateways.hoppa'));
+        $this->config = config('payline.gateways.hoppa');
+        $this->gateway = new HoppaGateway($this->config);
     }
 
     public function test_pay_returns_pending_with_redirect_url(): void
@@ -54,6 +56,43 @@ class HoppaGatewayTest extends TestCase
         $this->assertSame('https://3ds.hoppa.com/auth?token=abc123', $response->redirectUrl);
         $this->assertSame('HOPPA-REF-1', $response->gatewayOrderId);
         $this->assertTrue($response->requiresRedirect());
+    }
+
+    public function test_pay_carries_the_3ds_session_deadline(): void
+    {
+        Http::fake([
+            '*/api/pay/EYV3DPay' => Http::response([
+                'STATUS' => 'SUCCESS',
+                'URL_3DS' => 'https://3ds.hoppa.com/auth?token=abc123',
+            ]),
+        ]);
+
+        $response = $this->gateway->pay($this->makePaymentRequest());
+
+        $this->assertNotNull($response->expiresAt);
+        $this->assertSame(
+            now()->addMinutes(30)->format('Y-m-d H:i'),
+            $response->expiresAt->format('Y-m-d H:i'),
+        );
+    }
+
+    public function test_the_3ds_session_deadline_is_configurable(): void
+    {
+        Http::fake([
+            '*/api/pay/EYV3DPay' => Http::response([
+                'STATUS' => 'SUCCESS',
+                'URL_3DS' => 'https://3ds.hoppa.com/auth?token=abc123',
+            ]),
+        ]);
+
+        $gateway = new HoppaGateway([...$this->config, 'three_ds_session_minutes' => 10]);
+
+        $response = $gateway->pay($this->makePaymentRequest());
+
+        $this->assertSame(
+            now()->addMinutes(10)->format('Y-m-d H:i'),
+            $response->expiresAt->format('Y-m-d H:i'),
+        );
     }
 
     public function test_pay_returns_failed_on_error_response(): void
@@ -287,6 +326,123 @@ class HoppaGatewayTest extends TestCase
         $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
 
         $this->assertSame('none', $response->metadata['refund_state']);
+    }
+
+    public function test_query_payment_leaves_an_unfinished_3ds_order_pending(): void
+    {
+        Http::fake(['*/api/services/ProcessQuery' => Http::response([
+            'STATUS' => 'PAYMENT_WAITING',
+            'RETURN_CODE' => '106',
+            'RETURN_MESSAGE' => 'Ödeme - Bekliyor',
+            'TRANSACTIONS' => [
+                ['TRANSACTION_ID' => 783335, 'STATUS_NAME' => 'Ödeme - Bekliyor', 'AMOUNT' => '-1,00'],
+            ],
+        ])]);
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertSame(TransactionStatus::Pending, $response->status);
+    }
+
+    public function test_query_payment_reads_a_waiting_transaction_without_the_order_status(): void
+    {
+        $this->fakeQuery(['STATUS_NAME' => 'Ödeme - Bekliyor', 'AMOUNT' => '-1,00']);
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertSame(TransactionStatus::Pending, $response->status);
+    }
+
+    public function test_query_payment_claims_nothing_about_an_order_it_cannot_find(): void
+    {
+        Http::fake(['*/api/services/ProcessQuery' => Http::response([
+            'STATUS' => 'PROCESS_QUERY',
+            'RETURN_CODE' => '400',
+            'RETURN_MESSAGE' => 'Referans numarası bulunamadı (Not.ProcessQuery)',
+            'TRANSACTIONS' => null,
+        ])]);
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertSame(TransactionStatus::Unknown, $response->status);
+        $this->assertNull($response->refundedAmount);
+        $this->assertNull($response->voided);
+    }
+
+    public function test_query_payment_reports_no_refund_as_a_zero_total(): void
+    {
+        $this->fakeQuery(['STATUS_NAME' => 'Ödeme - Başarılı', 'AMOUNT' => '-350,00']);
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertSame(0, $response->refundedAmount);
+        $this->assertFalse($response->voided);
+    }
+
+    public function test_query_payment_totals_the_refunds_in_minor_units(): void
+    {
+        $this->fakeQuery(
+            ['STATUS_NAME' => 'Ödeme - Başarılı', 'AMOUNT' => '-1.250,00'],
+            ['STATUS_NAME' => 'İade - Başarılı', 'AMOUNT' => '120,50'],
+            ['STATUS_NAME' => 'İade - Başarılı', 'AMOUNT' => '-30,25'],
+        );
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertSame(15075, $response->refundedAmount);
+    }
+
+    public function test_query_payment_claims_no_total_when_a_refund_amount_cannot_be_read(): void
+    {
+        $this->fakeQuery(
+            ['STATUS_NAME' => 'Ödeme - Başarılı', 'AMOUNT' => '-350,00'],
+            ['STATUS_NAME' => 'İade - Başarılı'],
+        );
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertNull($response->refundedAmount);
+    }
+
+    public function test_query_payment_reports_a_cancelled_order_as_voided(): void
+    {
+        Http::fake(['*/api/services/ProcessQuery' => Http::response([
+            'STATUS' => 'ORDER_CANCEL',
+            'RETURN_CODE' => '300',
+        ])]);
+
+        $response = $this->gateway->queryPayment(new PaymentQuery(gatewayTransactionId: 'ORD-001'));
+
+        $this->assertTrue($response->voided);
+    }
+
+    public function test_query_payment_keeps_the_currency_it_asked_about(): void
+    {
+        $this->fakeQuery(['STATUS_NAME' => 'Ödeme - Başarılı', 'AMOUNT' => '-350,00']);
+
+        $response = $this->gateway->queryPayment(
+            new PaymentQuery(gatewayTransactionId: 'ORD-001', currency: 'EUR'),
+        );
+
+        $this->assertSame('EUR', $response->currency);
+    }
+
+    public function test_a_callback_claims_no_currency_because_hoppa_reports_none(): void
+    {
+        Http::fake([
+            '*/api/services/ProcessQuery' => Http::response([
+                'STATUS' => 'SUCCESS',
+                'RETURN_CODE' => '0',
+                'TRANSACTIONS' => [['STATUS_NAME' => 'Ödeme - Başarılı', 'AMOUNT' => '-350,00']],
+            ]),
+        ]);
+
+        $response = $this->gateway->handleCallback($this->callbackData([
+            'ORDER_REF_NUMBER' => 'ORD-001',
+            'STATUS' => 'SUCCESS',
+        ]));
+
+        $this->assertNull($response->currency);
     }
 
     public function test_query_payment_requires_the_order_reference(): void

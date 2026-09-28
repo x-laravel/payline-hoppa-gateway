@@ -30,6 +30,10 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
 {
     private const int ORDER_REFERENCE_LENGTH = 24;
 
+    private const string PAYMENT_WAITING = 'PAYMENT_WAITING';
+
+    private const int THREE_DS_SESSION_MINUTES = 30;
+
     public function __construct(private readonly array $config) {}
 
     public function getName(): string
@@ -116,7 +120,13 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
             currency: $data->currency,
             redirectUrl: $response['URL_3DS'],
             metadata: $response,
+            expiresAt: now()->addMinutes($this->threeDsSessionMinutes()),
         );
+    }
+
+    private function threeDsSessionMinutes(): int
+    {
+        return (int) ($this->config['three_ds_session_minutes'] ?? self::THREE_DS_SESSION_MINUTES);
     }
 
     public function refund(RefundData $data): PaymentResponse
@@ -217,10 +227,10 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         $orderRef = $query->gatewayTransactionId
             ?? throw new InvalidArgumentException('Hoppa requires the order reference to query a payment.');
 
-        return $this->orderState($orderRef);
+        return $this->orderState($orderRef, currency: $query->currency);
     }
 
-    private function orderState(string $orderRef, array $callback = []): PaymentResponse
+    private function orderState(string $orderRef, array $callback = [], ?string $currency = null): PaymentResponse
     {
         $response = Http::post($this->config['api_url'] . '/api/services/ProcessQuery', [
             'MERCHANT' => $this->config['merchant_id'],
@@ -237,6 +247,7 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
                 type: TransactionType::Payment,
                 gatewayName: $this->getName(),
                 gatewayTransactionId: $orderRef,
+                currency: $currency,
                 errorCode: (string) $response->status(),
                 errorMessage: 'Order query failed.',
                 metadata: $metadata ?: null,
@@ -246,19 +257,23 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         $names = $this->transactionNames($body);
         $status = $this->statusFrom($body, $names);
         $settled = in_array($status, [TransactionStatus::Successful, TransactionStatus::Voided], true);
+        $found = $status !== TransactionStatus::Unknown;
 
         return new PaymentResponse(
             status: $status,
             type: TransactionType::Payment,
             gatewayName: $this->getName(),
             gatewayTransactionId: $orderRef,
-            gatewayOrderId: $callback['REFNO'] ?? $body['REFNO'] ?? null,
-            gatewayAuthCode: $callback['BANK_AUTH_CODE'] ?? null,
-            gatewayResponseCode: $body['RETURN_CODE'] ?? null,
-            gatewayResponseMessage: $body['RETURN_MESSAGE'] ?? null,
-            errorCode: $settled ? null : ($callback['ERROR_CODE'] ?? $body['RETURN_CODE'] ?? null),
-            errorMessage: $settled ? null : ($callback['RETURN_MESSAGE_TR'] ?? $callback['RETURN_MESSAGE'] ?? $body['RETURN_MESSAGE'] ?? null),
+            gatewayOrderId: $this->nullIfBlank($callback['REFNO'] ?? $body['REFNO'] ?? null),
+            gatewayAuthCode: $this->nullIfBlank($callback['BANK_AUTH_CODE'] ?? null),
+            gatewayResponseCode: $this->nullIfBlank($body['RETURN_CODE'] ?? null),
+            gatewayResponseMessage: $this->nullIfBlank($body['RETURN_MESSAGE'] ?? null),
+            currency: $currency,
+            errorCode: $settled ? null : $this->nullIfBlank($callback['ERROR_CODE'] ?? $body['RETURN_CODE'] ?? null),
+            errorMessage: $settled ? null : $this->nullIfBlank($callback['RETURN_MESSAGE_TR'] ?? $callback['RETURN_MESSAGE'] ?? $body['RETURN_MESSAGE'] ?? null),
             metadata: $this->withRefundState($metadata, $names),
+            refundedAmount: $found ? $this->refundedAmount($body) : null,
+            voided: $found ? $status === TransactionStatus::Voided : null,
         );
     }
 
@@ -274,6 +289,10 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
 
         if ($this->has($names, 'Ödeme', 'Başarısız')) {
             return TransactionStatus::Failed;
+        }
+
+        if (($body['STATUS'] ?? '') === self::PAYMENT_WAITING || $this->has($names, 'Ödeme', 'Bekliyor')) {
+            return TransactionStatus::Pending;
         }
 
         return TransactionStatus::Unknown;
@@ -309,6 +328,43 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
         $metadata['refund_state'] = $this->has($names, 'İade', 'Başarılı') ? 'refunded' : 'none';
 
         return $metadata;
+    }
+
+    private function refundedAmount(array $body): ?int
+    {
+        $total = 0;
+
+        foreach ($body['TRANSACTIONS'] ?? [] as $transaction) {
+            if (! is_array($transaction) || ! $this->has([$transaction['STATUS_NAME'] ?? ''], 'İade', 'Başarılı')) {
+                continue;
+            }
+
+            $amount = $this->minorUnits($transaction['AMOUNT'] ?? null);
+
+            if ($amount === null) {
+                return null;
+            }
+
+            $total += $amount;
+        }
+
+        return $total;
+    }
+
+    private function minorUnits(mixed $amount): ?int
+    {
+        if (! is_string($amount) && ! is_numeric($amount)) {
+            return null;
+        }
+
+        $normalised = str_replace([' ', '.', ','], ['', '', '.'], (string) $amount);
+
+        return is_numeric($normalised) ? (int) round(abs((float) $normalised) * 100) : null;
+    }
+
+    private function nullIfBlank(mixed $value): ?string
+    {
+        return blank($value) ? null : (string) $value;
     }
 
     private function cardFamily(?string $family): ?string
