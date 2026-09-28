@@ -26,7 +26,7 @@ class HoppaBinLookupProvider implements BinLookupProvider
             : CardType::Credit;
 
         return new CardProfile(
-            family: $response['Card_Family'],
+            family: mb_strtolower(trim($response['Card_Family']), 'UTF-8'),
             type: $cardType,
         );
     }

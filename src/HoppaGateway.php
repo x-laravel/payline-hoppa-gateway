@@ -313,7 +313,7 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
 
     private function cardFamily(?string $family): ?string
     {
-        $family = trim((string) $family);
+        $family = mb_strtolower(trim((string) $family), 'UTF-8');
 
         return $family === '' || $family === '*' ? null : $family;
     }

@@ -168,7 +168,7 @@ $card = (new Card(
     cvv: '123',
 ))->resolveProfile(app(BinLookupManager::class));
 
-// $card->profile->family → 'Maximum'
+// $card->profile->family → 'maximum'
 // $card->profile->type   → CardType::Credit
 ```
 
@@ -188,6 +188,18 @@ $order->pay()->charge($data); // cheapest gateway selected automatically
 |-------------------|----------------------|
 | CREDIT            | `CardType::Credit`   |
 | DEBIT             | `CardType::Debit`    |
+
+## Commission Rates
+
+```shell
+php artisan payline:sync-rates --gateway=hoppa --dry-run
+php artisan payline:sync-rates --gateway=hoppa
+```
+
+`commissionRates()` reads `/api/services/GetInstallments`, which returns a rate per card
+family and installment count. The provider reports the rate as a fraction, `0.0275` for a
+single installment, and Payline stores a percentage, so the driver multiplies by a hundred.
+A family reported as `*` becomes a wildcard row.
 
 ## Supported Operations
 

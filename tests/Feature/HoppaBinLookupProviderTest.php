@@ -32,7 +32,7 @@ class HoppaBinLookupProviderTest extends TestCase
         $profile = $this->provider->lookup('51015200');
 
         $this->assertNotNull($profile);
-        $this->assertSame('Maximum', $profile->family);
+        $this->assertSame('maximum', $profile->family);
         $this->assertSame(CardType::Credit, $profile->type);
     }
 
@@ -51,8 +51,20 @@ class HoppaBinLookupProviderTest extends TestCase
         $profile = $this->provider->lookup('45218200');
 
         $this->assertNotNull($profile);
-        $this->assertSame('Paraf', $profile->family);
+        $this->assertSame('paraf', $profile->family);
         $this->assertSame(CardType::Debit, $profile->type);
+    }
+
+    public function test_lookup_normalises_the_family_the_rate_service_also_reports(): void
+    {
+        Http::fake([
+            '*/api/services/EYVBinService' => Http::response([
+                'Card_Type' => 'CREDIT',
+                'Card_Family' => '  Bonus ',
+            ]),
+        ]);
+
+        $this->assertSame('bonus', $this->provider->lookup('51015200')->family);
     }
 
     public function test_lookup_sends_first_8_digits(): void

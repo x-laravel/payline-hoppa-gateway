@@ -461,6 +461,16 @@ class HoppaGatewayTest extends TestCase
         }
     }
 
+    public function test_the_family_is_normalised_the_way_the_bin_service_reports_it(): void
+    {
+        Http::fake(['*/api/services/GetInstallments' => Http::response([
+            'STATUS' => 'SUCCESS',
+            'INSTALLMENTS' => [['FAMILY' => ' Bonus ', 'INSTALLMENT' => 1, 'RATE' => 0.0275]],
+        ])]);
+
+        $this->assertSame('bonus', $this->gateway->commissionRates()[0]->cardFamily);
+    }
+
     public function test_a_zero_installment_entry_counts_as_a_single_payment(): void
     {
         Http::fake(['*/api/services/GetInstallments' => Http::response([
