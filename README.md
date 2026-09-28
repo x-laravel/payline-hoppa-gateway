@@ -29,6 +29,7 @@ Add the `hoppa` block to `config/payline.php` under `gateways`:
         'merchant_id'  => env('HOPPA_MERCHANT_ID'),
         'merchant_key' => env('HOPPA_MERCHANT_KEY'),
         'three_ds_session_minutes' => env('HOPPA_3DS_SESSION_MINUTES', 30),
+        'blocking_days' => env('HOPPA_BLOCKING_DAYS'),
     ],
 ],
 ```
@@ -217,6 +218,20 @@ php artisan payline:sync-rates --gateway=hoppa
 family and installment count. The provider reports the rate as a fraction, `0.0275` for a
 single installment, and Payline stores a percentage, so the gateway multiplies by a hundred.
 A family reported as `*` becomes a wildcard row.
+
+The listing carries no settlement delay, so `blocking_days` comes from the gateway entry
+and is written onto every rate the sync stores. It is the number of days Hoppa holds a
+payment before the money reaches you, and it belongs to your agreement rather than to
+this package, so nothing is assumed when the key is absent: the rates are stored without
+it and ranking prices them on the commission alone.
+
+```php
+'blocking_days' => 14,
+```
+
+Payline turns that into a cost through `routing.cost_of_capital`. A gateway that holds
+the money nine days longer than another is not free, and a lower commission can lose to
+a shorter wait once the difference is priced.
 
 ## Supported Operations
 

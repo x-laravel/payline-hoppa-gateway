@@ -255,6 +255,9 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
                 rate: round((float) $entry['RATE'] * 100, 4),
                 installments: max(1, (int) $entry['INSTALLMENT']),
                 cardFamily: $this->cardFamily($entry['FAMILY'] ?? null),
+                blockingDays: isset($this->config['blocking_days'])
+                    ? (int) $this->config['blocking_days']
+                    : null,
             );
         }
 

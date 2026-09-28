@@ -738,6 +738,23 @@ class HoppaGatewayTest extends TestCase
         $this->assertSame('bonus', $this->gateway->commissionRates()[0]->cardFamily);
     }
 
+    public function test_the_configured_holding_period_is_carried_on_every_rate(): void
+    {
+        Http::fake(['*/api/services/GetInstallments' => Http::response([
+            'STATUS' => 'SUCCESS',
+            'INSTALLMENTS' => [
+                ['FAMILY' => 'bonus', 'INSTALLMENT' => 1, 'RATE' => 0.0203],
+                ['FAMILY' => 'maximum', 'INSTALLMENT' => 3, 'RATE' => 0.031],
+            ],
+        ])]);
+
+        $gateway = new HoppaGateway(array_merge($this->config, ['blocking_days' => 14]));
+
+        foreach ($gateway->commissionRates() as $rate) {
+            $this->assertSame(14, $rate->blockingDays);
+        }
+    }
+
     public function test_a_zero_installment_entry_counts_as_a_single_payment(): void
     {
         Http::fake(['*/api/services/GetInstallments' => Http::response([
