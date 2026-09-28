@@ -1,6 +1,6 @@
 <?php
 
-namespace XLaravel\PaylineHoppaDriver;
+namespace XLaravel\Payline\Gateways\Hoppa;
 
 use Illuminate\Support\Facades\Http;
 use XLaravel\Payline\Contracts\BinLookupProvider;

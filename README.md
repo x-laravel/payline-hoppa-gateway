@@ -1,11 +1,11 @@
-# payline-hoppa-driver
+# payline-hoppa-gateway
 
-[![Tests](https://github.com/x-laravel/payline-hoppa-driver/actions/workflows/tests.yml/badge.svg)](https://github.com/x-laravel/payline-hoppa-driver/actions/workflows/tests.yml)
+[![Tests](https://github.com/x-laravel/payline-hoppa-gateway/actions/workflows/tests.yml/badge.svg)](https://github.com/x-laravel/payline-hoppa-gateway/actions/workflows/tests.yml)
 [![PHP](https://img.shields.io/badge/PHP-8.3%2B-blue)](https://www.php.net)
 [![Laravel](https://img.shields.io/badge/Laravel-12%20|%2013-red)](https://laravel.com)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE.md)
 
-Hoppa payment gateway driver for [x-laravel/payline](https://github.com/x-laravel/payline).
+Hoppa payment gateway for [x-laravel/payline](https://github.com/x-laravel/payline).
 
 ## Requirements
 
@@ -16,7 +16,7 @@ Hoppa payment gateway driver for [x-laravel/payline](https://github.com/x-larave
 ## Installation
 
 ```bash
-composer require x-laravel/payline-hoppa-driver
+composer require x-laravel/payline-hoppa-gateway
 ```
 
 ## Configuration
@@ -37,7 +37,7 @@ Add the `hoppa` block to `config/payline.php` under `gateways`:
 Set the corresponding environment variables in `.env`:
 
 ```dotenv
-PAYLINE_DRIVER=hoppa
+PAYLINE_GATEWAY=hoppa
 
 HOPPA_API_URL=https://posservice.esnekpos.com
 HOPPA_MERCHANT_ID=your-merchant-id
@@ -80,7 +80,7 @@ if ($response->requiresRedirect()) {
 
 Payline handles the callback automatically via its built-in route (`/payline/callback/hoppa`). After 3DS completes, Hoppa POSTs to this URL and the customer is sent on according to `payline.routes.callback_response`.
 
-The driver does not take the outcome from that POST. Hoppa's callback carries a `HASH`, but the algorithm behind it is not published — the integration document tells merchants to ask support for it. The driver therefore reads the order reference from the callback and asks `/api/services/ProcessQuery` what actually happened, so a forged POST cannot settle a payment. This costs one extra request per callback.
+The gateway does not take the outcome from that POST. Hoppa's callback carries a `HASH`, but the algorithm behind it is not published — the integration document tells merchants to ask support for it. The gateway therefore reads the order reference from the callback and asks `/api/services/ProcessQuery` what actually happened, so a forged POST cannot settle a payment. This costs one extra request per callback.
 
 The order reference is generated per attempt rather than taken from the merchant reference, because Hoppa caps `ORDER_REF_NUMBER` at 24 characters and rejects a reference it has already seen. It is recorded as `gateway_transaction_id`, and refunds and reconciliation are keyed on it.
 
@@ -127,7 +127,7 @@ reversal that brings the returned total up to the order amount is the one that c
 sends the amount it was given and reports `successful`. Both reach the same endpoint.
 
 Hoppa records the outcome as its own entry under `TRANSACTIONS`, named `İptal - Başarılı` for
-a cancellation and `İade - Başarılı` for a refund, each carrying its amount. The driver totals
+a cancellation and `İade - Başarılı` for a refund, each carrying its amount. The gateway totals
 both into `PaymentResponse::$refundedAmount`, because a cancellation returns money just as a
 refund does.
 
@@ -159,7 +159,7 @@ order whose customer has not come back from the 3D Secure page answers with both
   "TRANSACTIONS": [{ "STATUS_NAME": "Ödeme - Bekliyor", "AMOUNT": "-1,00" }] }
 ```
 
-Hoppa sends that same answer while the customer is still on the page, so the driver reports
+Hoppa sends that same answer while the customer is still on the page, so the gateway reports
 it as `pending` and Payline settles it as `expired` once the transaction passes the deadline
 set from `three_ds_session_minutes`. An order Hoppa cannot find answers `RETURN_CODE` `400`
 with a null `TRANSACTIONS`, which stays `unknown`.
@@ -169,13 +169,13 @@ transaction in Payline. It surfaces as `refund_state` on the metadata, either `r
 `none`, and its `AMOUNT` values are totalled into `PaymentResponse::$refundedAmount` so
 Payline can settle an open refund. Amounts arrive in Turkish notation and carry a sign that
 depends on the direction, so they are parsed as `-1.250,00` and taken as absolute values;
-when one of them cannot be read the driver reports no total rather than a wrong one.
+when one of them cannot be read the gateway reports no total rather than a wrong one.
 
 ## Currencies
 
 Hoppa takes `PRICES_CURRENCY` on the payment request and accepts `TRY`, `USD`, `EUR` and
 `GBP`, but it never reports a currency back: neither the `EYV3DPay` answer, nor the callback
-POSTed to `BACK_URL`, nor the `ProcessQuery` response carries one. The driver therefore
+POSTed to `BACK_URL`, nor the `ProcessQuery` response carries one. The gateway therefore
 leaves `PaymentResponse::$currency` null after a callback rather than claiming `TRY`, and
 uses `PaymentQuery::$currency` when reconciliation names the currency it is asking about.
 
@@ -235,7 +235,7 @@ php artisan payline:sync-rates --gateway=hoppa
 
 `commissionRates()` reads `/api/services/GetInstallments`, which returns a rate per card
 family and installment count. The provider reports the rate as a fraction, `0.0275` for a
-single installment, and Payline stores a percentage, so the driver multiplies by a hundred.
+single installment, and Payline stores a percentage, so the gateway multiplies by a hundred.
 A family reported as `*` becomes a wildcard row.
 
 ## Supported Operations
@@ -252,7 +252,7 @@ A family reported as `*` becomes a wildcard row.
 
 Amounts are sent as lira with two decimal places: Payline's `10050` in the minor unit leaves as `100.50`. The basket, when the request carries one, is sent as the `Product` group.
 
-The driver declares the table above through `ProvidesGatewayCapabilities`, so commission
+The gateway declares the table above through `ProvidesGatewayCapabilities`, so commission
 routing skips it for a request it cannot take. Credit and debit cards are both accepted,
 and the currencies are the four `PRICES_CURRENCY` values the provider documents.
 

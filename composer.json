@@ -1,6 +1,6 @@
 {
-    "name": "x-laravel/payline-hoppa-driver",
-    "description": "Hoppa payment gateway driver for x-laravel/payline",
+    "name": "x-laravel/payline-hoppa-gateway",
+    "description": "Hoppa payment gateway for x-laravel/payline",
     "keywords": ["laravel", "payment", "hoppa", "vpos"],
     "type": "library",
     "license": "MIT",
@@ -16,18 +16,18 @@
     },
     "autoload": {
         "psr-4": {
-            "XLaravel\\PaylineHoppaDriver\\": "src/"
+            "XLaravel\\Payline\\Gateways\\Hoppa\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "XLaravel\\PaylineHoppaDriver\\Tests\\": "tests/"
+            "XLaravel\\Payline\\Gateways\\Hoppa\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "XLaravel\\PaylineHoppaDriver\\HoppaServiceProvider"
+                "XLaravel\\Payline\\Gateways\\Hoppa\\HoppaServiceProvider"
             ]
         }
     },

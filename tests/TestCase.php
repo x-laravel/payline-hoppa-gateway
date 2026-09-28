@@ -1,10 +1,10 @@
 <?php
 
-namespace XLaravel\PaylineHoppaDriver\Tests;
+namespace XLaravel\Payline\Gateways\Hoppa\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
 use XLaravel\Payline\PaylineServiceProvider;
-use XLaravel\PaylineHoppaDriver\HoppaServiceProvider;
+use XLaravel\Payline\Gateways\Hoppa\HoppaServiceProvider;
 
 class TestCase extends Orchestra
 {

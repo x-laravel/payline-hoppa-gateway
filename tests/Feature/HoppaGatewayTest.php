@@ -1,6 +1,6 @@
 <?php
 
-namespace XLaravel\PaylineHoppaDriver\Tests\Feature;
+namespace XLaravel\Payline\Gateways\Hoppa\Tests\Feature;
 
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
@@ -25,8 +25,8 @@ use XLaravel\Payline\DTOs\VoidData;
 use XLaravel\Payline\Enums\PaymentMethod;
 use XLaravel\Payline\Enums\TransactionStatus;
 use XLaravel\Payline\Enums\TransactionType;
-use XLaravel\PaylineHoppaDriver\HoppaGateway;
-use XLaravel\PaylineHoppaDriver\Tests\TestCase;
+use XLaravel\Payline\Gateways\Hoppa\HoppaGateway;
+use XLaravel\Payline\Gateways\Hoppa\Tests\TestCase;
 
 class HoppaGatewayTest extends TestCase
 {

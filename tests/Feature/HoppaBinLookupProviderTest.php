@@ -1,11 +1,11 @@
 <?php
 
-namespace XLaravel\PaylineHoppaDriver\Tests\Feature;
+namespace XLaravel\Payline\Gateways\Hoppa\Tests\Feature;
 
 use Illuminate\Support\Facades\Http;
 use XLaravel\Payline\Enums\CardType;
-use XLaravel\PaylineHoppaDriver\HoppaBinLookupProvider;
-use XLaravel\PaylineHoppaDriver\Tests\TestCase;
+use XLaravel\Payline\Gateways\Hoppa\HoppaBinLookupProvider;
+use XLaravel\Payline\Gateways\Hoppa\Tests\TestCase;
 
 class HoppaBinLookupProviderTest extends TestCase
 {
