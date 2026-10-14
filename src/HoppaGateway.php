@@ -266,10 +266,18 @@ class HoppaGateway implements ChargesPayments, Gateway, HandlesCallbacks, Provid
 
     public function queryPayment(PaymentQuery $query): PaymentResponse
     {
-        $orderRef = $query->gatewayTransactionId
-            ?? throw new InvalidArgumentException('Hoppa requires the order reference to query a payment.');
+        if ($query->gatewayTransactionId === null) {
+            return new PaymentResponse(
+                status: TransactionStatus::Failed,
+                type: TransactionType::Payment,
+                gatewayName: $this->getName(),
+                currency: $query->currency,
+                errorCode: 'MISSING_ORDER_REFERENCE',
+                errorMessage: 'Hoppa never returned a 3-D Secure page for this payment, so the card was not charged.',
+            );
+        }
 
-        return $this->orderState($orderRef, currency: $query->currency);
+        return $this->orderState($query->gatewayTransactionId, currency: $query->currency);
     }
 
     private function orderState(string $orderRef, array $callback = [], ?string $currency = null): PaymentResponse

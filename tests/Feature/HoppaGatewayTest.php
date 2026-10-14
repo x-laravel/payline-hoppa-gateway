@@ -3,7 +3,6 @@
 namespace XLaravel\Payline\Gateways\Hoppa\Tests\Feature;
 
 use Illuminate\Support\Facades\Http;
-use InvalidArgumentException;
 use RuntimeException;
 use XLaravel\Payline\Contracts\AuthorizesPayments;
 use XLaravel\Payline\Contracts\CapturesPayments;
@@ -506,11 +505,17 @@ class HoppaGatewayTest extends TestCase
         $this->assertNull($response->currency);
     }
 
-    public function test_query_payment_requires_the_order_reference(): void
+    public function test_a_payment_without_an_order_reference_fails_without_asking_hoppa(): void
     {
-        $this->expectException(InvalidArgumentException::class);
+        Http::fake();
 
-        $this->gateway->queryPayment(new PaymentQuery(reference: 'ORD-001'));
+        $response = $this->gateway->queryPayment(new PaymentQuery(reference: 'ORD-001', currency: 'TRY'));
+
+        $this->assertSame(TransactionStatus::Failed, $response->status);
+        $this->assertSame(TransactionType::Payment, $response->type);
+        $this->assertSame('MISSING_ORDER_REFERENCE', $response->errorCode);
+        $this->assertSame('TRY', $response->currency);
+        Http::assertNothingSent();
     }
 
     public function test_refund_sends_correct_request_and_returns_refunded_status(): void
